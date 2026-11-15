@@ -100,6 +100,8 @@ interface CampaignDoc {
   createdAt: Date;
   finishedAt: Date | null;
   cancelRequested?: boolean;
+  /** Updated while this process is actively sending (multi-instance safety). */
+  heartbeatAt?: Date;
 }
 
 interface MessageDoc {
@@ -131,6 +133,12 @@ export function getActiveCampaignIds(): Set<string> {
 
 const now = () => new Date();
 
+/**
+ * A running campaign with no heartbeat for this long is treated as dead
+ * (crashed server / killed serverless function) and marked interrupted.
+ */
+const STALE_AFTER_MS = 60_000;
+
 const campaigns = async () => (await getMongoDb()).collection<CampaignDoc>("campaigns");
 const messages = async () => (await getMongoDb()).collection<MessageDoc>("messages");
 
@@ -144,10 +152,20 @@ async function markStaleCampaigns(): Promise<void> {
   const active = getActiveCampaignIds();
   const campaignCollection = await campaigns();
   const running = await campaignCollection
-    .find({ status: "running" }, { projection: { _id: 1 } })
+    .find({ status: "running" }, { projection: { _id: 1, heartbeatAt: 1, createdAt: 1 } })
     .toArray();
 
-  const stale = running.map((row) => row._id).filter((id) => !active.has(id));
+  // Only reap campaigns whose heartbeat has stopped. The in-process check alone
+  // is not enough: a second server instance (or a serverless cold start) would
+  // otherwise mark a healthy campaign as interrupted.
+  const cutoff = Date.now() - STALE_AFTER_MS;
+  const stale = running
+    .filter((row) => !active.has(row._id))
+    .filter((row) => {
+      const last = row.heartbeatAt ?? row.createdAt;
+      return last.getTime() < cutoff;
+    })
+    .map((row) => row._id);
   if (stale.length === 0) return;
 
   const at = now();
@@ -209,6 +227,11 @@ export async function isCampaignCancelRequested(id: string): Promise<boolean> {
   return Boolean(row?.cancelRequested);
 }
 
+/** Keeps a live campaign from being treated as crashed by another instance. */
+export async function touchCampaign(id: string): Promise<void> {
+  await (await campaigns()).updateOne({ _id: id }, { $set: { heartbeatAt: now() } });
+}
+
 export async function createCampaign(record: {
   id: string;
   subject: string;
@@ -236,6 +259,7 @@ export async function createCampaign(record: {
     createdAt: at,
     finishedAt: null,
     cancelRequested: false,
+    heartbeatAt: at,
   });
 }
 
@@ -322,7 +346,7 @@ export async function finishCampaign(
 export async function markCampaignRunning(id: string): Promise<void> {
   await (await campaigns()).updateOne(
     { _id: id },
-    { $set: { status: "running", finishedAt: null, cancelRequested: false } },
+    { $set: { status: "running", finishedAt: null, cancelRequested: false, heartbeatAt: now() } },
   );
 }
 

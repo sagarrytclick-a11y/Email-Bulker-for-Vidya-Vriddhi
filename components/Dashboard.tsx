@@ -139,6 +139,7 @@ export function Dashboard({ username }: { username: string }) {
   const [attachingBackground, setAttachingBackground] = useState(false);
   const [stoppingBackground, setStoppingBackground] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
+  const [serverless, setServerless] = useState(false);
   const [resumeBusy, setResumeBusy] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [consent, setConsent] = useState(false);
@@ -166,6 +167,7 @@ export function Dashboard({ username }: { username: string }) {
         if (config.delivery) setDelivery(config.delivery);
         setDailyQuota({ dailyCap: config.dailyCap ?? 300, sentToday: config.sentToday ?? 0 });
         setDbError(config.dbError ?? null);
+        setServerless(Boolean(config.serverless));
       } catch {
         // Fall back to manual credentials when runtime defaults cannot be read.
         setEnvInfo({
@@ -194,6 +196,7 @@ export function Dashboard({ username }: { username: string }) {
         if (config) {
           setDailyQuota({ dailyCap: config.dailyCap ?? 300, sentToday: config.sentToday ?? 0 });
           setDbError(config.dbError ?? null);
+          setServerless(Boolean(config.serverless));
         }
       })
       .catch(() => {});
@@ -657,6 +660,17 @@ export function Dashboard({ username }: { username: string }) {
 
           <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-8 pt-5 sm:px-6 sm:pt-6 lg:px-8">
             <div className="w-full">
+              {serverless ? (
+                <div
+                  role="status"
+                  className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/[0.08] p-3 text-[12px] leading-relaxed text-amber-200"
+                >
+                  <span className="font-semibold">Serverless host detected.</span> Sending is cut off when the
+                  platform function timeout is reached (about 5 minutes on Vercel), and it cannot continue after
+                  the tab closes. For 300-email background campaigns, deploy this app on a VPS, Railway or Render
+                  web service instead.
+                </div>
+              ) : null}
               {dbError ? (
                 <div
                   role="alert"

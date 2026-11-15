@@ -98,6 +98,8 @@ export interface RuntimeConfig {
   sentToday: number;
   /** Set when the MongoDB connection failed — the UI shows a banner. */
   dbError?: string | null;
+  /** True on Vercel/Lambda-style hosts where long background sends cannot run. */
+  serverless?: boolean;
 }
 
 export interface ContactedInfo {

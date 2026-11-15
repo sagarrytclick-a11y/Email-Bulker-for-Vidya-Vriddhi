@@ -13,7 +13,9 @@ import type { Recipient, SmtpSettings } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 3600;
+// Vercel caps Hobby serverless functions at 300s. Self-hosted Node ignores
+// this hint, which is why long campaigns should run on a VPS/Railway/Render.
+export const maxDuration = 300;
 
 type RouteContext = { params: Promise<{ id: string }> };
 

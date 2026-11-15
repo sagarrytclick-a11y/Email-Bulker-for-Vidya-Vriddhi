@@ -23,5 +23,8 @@ export async function GET() {
     dailyCap: getDailySendCap(),
     sentToday,
     dbError,
+    serverless: Boolean(
+      process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY,
+    ),
   });
 }

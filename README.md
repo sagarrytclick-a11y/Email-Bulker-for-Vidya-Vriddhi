@@ -201,7 +201,7 @@ SSE events: `start`, `verified`, `notice`, `warning`, `cooldown`, `log`, `progre
 
 - History lives in MongoDB (`MONGODB_DB`, default `bulk_email`): a `campaigns` collection and a `messages` collection (one document per recipient).
 - When a campaign is sending with no dashboard attached, the dashboard shows a **“Campaign running in the background”** banner with **Attach** and **Stop**. Attaching polls `/api/campaigns/[id]/status`; it does not restart or disturb the run.
-- On startup, any campaign still marked `running` that is not active in this process is marked **interrupted**, and rows stuck in `sending` become **unconfirmed**.
+- On startup (or after a serverless timeout), any campaign still marked `running` whose heartbeat has stopped for 60 seconds is marked **interrupted**, and rows stuck in `sending` become **unconfirmed**. A live campaign refreshes that heartbeat every 15 seconds, so another instance or a cold start never mistakes it for a crash.
 - The dashboard then shows a banner: *Resume N remaining*. Resuming re-sends only `pending` rows; `unconfirmed` rows need an explicit checkbox because they may already be delivered.
 - "Duplicate leads" (Audience tab tags, Overview report, CSV export) comes from the same history: an address is a duplicate when it has 2+ successful sends.
 - Campaign history and per-campaign CSV exports are available in Overview.
@@ -235,7 +235,7 @@ The dashboard also requires an explicit opt-in confirmation before each campaign
 
 - Set all SMTP and safety variables in your hosting provider's environment (not in a committed file).
 - **MongoDB**: use Atlas (free M0 works) or a self-hosted instance. Set `MONGODB_URI` and optionally `MONGODB_DB`. No persistent disk is needed on the app server now.
-- **Background sending needs a long-running Node process.** Use a VPS, Railway, Render (with a persistent web service) or Docker. Serverless (Vercel) will freeze/kill the function between requests, so a campaign would stop — the run is not a browser request anymore, but it still lives inside the Node process.
+- **Background sending needs a long-running Node process.** Use a VPS, Railway, Render (with a persistent web service) or Docker. Serverless (Vercel) will freeze/kill the function between requests, so a campaign would stop — the run is not a browser request anymore, but it still lives inside the Node process. Both send routes export `maxDuration = 300` so a Vercel Hobby build is valid; that 5-minute limit is also why Vercel cannot finish a 300-email campaign. The dashboard shows a warning banner automatically when it detects a serverless host.
 - The route uses Node.js (`runtime = "nodejs"`) and streaming. Run **one app instance per database**; the interrupted-campaign detector assumes the send loop and the dashboard share a process. Running two replicas against the same DB can make each replica mark the other's campaign as interrupted.
 - Keep `AUTH_USERNAME`, `AUTH_PASSWORD` and `JWT_SECRET` in your hosting provider's environment (not a committed file). Use a long random secret and change the default password. The app ships a single-account JWT login; add a real user store or an auth provider if you need multiple accounts.
 - The **daily cap** is enforced from MongoDB and survives restarts; the **session cap** applies per run. Both are server-side and cannot be bypassed from the browser.

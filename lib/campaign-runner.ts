@@ -11,6 +11,7 @@ import {
   getActiveCampaignIds,
   isCampaignCancelRequested,
   markSendingAsUnconfirmed,
+  touchCampaign,
   updateMessageStatus,
 } from "@/lib/db";
 import { buildEmailDocument, htmlToPlainText, renderSubject, renderTemplate } from "@/lib/template";
@@ -135,6 +136,12 @@ export function buildCampaignResponse(args: RunnerArgs): Response {
         } catch {
           closed = true;
         }
+      }, 15_000);
+
+      // Database heartbeat: proves to other processes/instances that this
+      // campaign is alive, so they never mistake it for a crashed run.
+      const dbHeartbeat = setInterval(() => {
+        void touchCampaign(campaignId).catch(() => {});
       }, 15_000);
 
       const startedAt = Date.now();
@@ -387,6 +394,7 @@ export function buildCampaignResponse(args: RunnerArgs): Response {
       } finally {
         activeCampaigns.delete(campaignId);
         clearInterval(heartbeat);
+        clearInterval(dbHeartbeat);
         try {
           activeTransporter?.close();
         } catch {

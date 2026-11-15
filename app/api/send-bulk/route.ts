@@ -19,7 +19,9 @@ import { isValidEmail } from "@/lib/utils";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 3600;
+// Vercel caps Hobby serverless functions at 300s. Self-hosted Node ignores
+// this hint, which is why long campaigns should run on a VPS/Railway/Render.
+export const maxDuration = 300;
 
 const MAX_RECIPIENTS = 5000;
 const MAX_BODY_LENGTH = 500_000;
