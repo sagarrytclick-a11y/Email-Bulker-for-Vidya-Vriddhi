@@ -183,6 +183,21 @@ function reducer(state: CampaignState, action: Action): CampaignState {
           };
           return { ...state, progress };
         }
+        case "paused": {
+          const ms = Number(data.resumeAfterMs) || 0;
+          return {
+            ...state,
+            cooldown:
+              ms > 0
+                ? {
+                    seconds: Math.ceil(ms / 1000),
+                    until: Date.now() + ms,
+                    message:
+                      "Serverless time limit reached. The campaign continues automatically when the cooldown ends — keep this tab open.",
+                  }
+                : null,
+          };
+        }
         case "done":
         case "cancelled": {
           const progress: CampaignProgress = {
@@ -296,9 +311,37 @@ function parseStreamChunk(buffer: string): { events: Array<{ event: string; data
   return { events, rest };
 }
 
+/** Resolves after `ms`, or immediately when the request is aborted. */
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, Math.min(ms, 300_000));
+    function done() {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    }
+    signal.addEventListener("abort", done, { once: true });
+  });
+}
+
+interface ResumeConfig {
+  useEnv: boolean;
+  smtp?: SendPayload["smtp"];
+  fromName?: string;
+  fromEmail?: string;
+  includeUnconfirmed?: boolean;
+}
+
 /** Reads an SSE response body and dispatches every event into the reducer. */
-async function pumpStream(response: Response, dispatch: Dispatch<Action>): Promise<void> {
-  if (!response.body) return;
+async function pumpStream(
+  response: Response,
+  dispatch: Dispatch<Action>,
+): Promise<{ paused: boolean; resumeAfterMs: number; terminal: boolean }> {
+  let paused = false;
+  let resumeAfterMs = 0;
+  let terminal = false;
+  if (!response.body) return { paused, resumeAfterMs, terminal };
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -319,9 +362,74 @@ async function pumpStream(response: Response, dispatch: Dispatch<Action>): Promi
       } catch {
         data = {};
       }
+      if (item.event === "paused") {
+        paused = true;
+        resumeAfterMs = Number(data.resumeAfterMs) || 0;
+      }
+      if (item.event === "done" || item.event === "cancelled" || item.event === "fatal") {
+        terminal = true;
+      }
       dispatch({ type: "event", event: item.event, data });
     }
   }
+
+  return { paused, resumeAfterMs, terminal };
+}
+
+/**
+ * Streams a sending chunk and, when a serverless host pauses the campaign
+ * before its function timeout, waits out any cooldown and resumes the next
+ * chunk automatically. Stops when the campaign finishes, the user presses
+ * Stop, or a chunk fails to restart.
+ */
+async function driveCampaign(args: {
+  campaignId: string;
+  response: Response;
+  config: ResumeConfig;
+  signal: AbortSignal;
+  dispatch: Dispatch<Action>;
+}): Promise<void> {
+  let response = args.response;
+
+  for (let chunk = 0; chunk < 200; chunk += 1) {
+    const { paused, resumeAfterMs, terminal } = await pumpStream(response, args.dispatch);
+    if (args.signal.aborted) return;
+    if (!paused) {
+      // The stream ended without a pause. If it also never reported a final
+      // event, the connection died (or the host killed the function early).
+      if (!terminal) args.dispatch({ type: "streamEnd" });
+      return;
+    }
+
+    await sleep(resumeAfterMs, args.signal);
+    if (args.signal.aborted) return;
+
+    const resumed = await fetch(`/api/campaigns/${args.campaignId}/resume`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args.config),
+      signal: args.signal,
+    });
+
+    if (!resumed.ok || !resumed.body) {
+      let message = `The campaign could not continue automatically (HTTP ${resumed.status}).`;
+      try {
+        const data = (await resumed.json()) as { error?: string };
+        if (data?.error) message = data.error;
+      } catch {
+        // Keep the generic message when the response is not JSON.
+      }
+      args.dispatch({ type: "failed", message });
+      return;
+    }
+
+    response = resumed;
+  }
+
+  args.dispatch({
+    type: "failed",
+    message: "The campaign paused too many times and was stopped. Open the campaign history and press Resume to continue.",
+  });
 }
 
 export function useCampaign() {
@@ -365,11 +473,28 @@ export function useCampaign() {
         throw new Error(message);
       }
 
-      campaignIdRef.current = response.headers.get("x-campaign-id");
+      const campaignId = response.headers.get("x-campaign-id");
+      campaignIdRef.current = campaignId;
 
-      await pumpStream(response, dispatch);
+      const resumeConfig: ResumeConfig = {
+        useEnv: Boolean(payload.useEnv),
+        smtp: payload.smtp,
+        fromName: payload.fromName,
+        fromEmail: payload.fromEmail,
+      };
 
-      dispatch({ type: "streamEnd" });
+      if (campaignId) {
+        await driveCampaign({
+          campaignId,
+          response,
+          config: resumeConfig,
+          signal: controller.signal,
+          dispatch,
+        });
+      } else {
+        await pumpStream(response, dispatch);
+        dispatch({ type: "streamEnd" });
+      }
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         dispatch({
@@ -479,14 +604,6 @@ export function useCampaign() {
     }
   }, []);
 
-  interface ResumeConfig {
-    useEnv: boolean;
-    smtp?: SendPayload["smtp"];
-    fromName?: string;
-    fromEmail?: string;
-    includeUnconfirmed?: boolean;
-  }
-
   /** Resume a campaign that stopped mid-run. Re-sends only unfinished rows. */
   const startResume = useCallback(async (campaignId: string, config: ResumeConfig) => {
     abortRef.current?.abort();
@@ -515,9 +632,13 @@ export function useCampaign() {
         throw new Error(message);
       }
 
-      await pumpStream(response, dispatch);
-
-      dispatch({ type: "streamEnd" });
+      await driveCampaign({
+        campaignId,
+        response,
+        config,
+        signal: controller.signal,
+        dispatch,
+      });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         dispatch({

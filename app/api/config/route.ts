@@ -1,6 +1,7 @@
 import { getDeliveryDefaults, getEnvSmtpInfo } from "@/lib/mailer";
 import { countSentToday, getDailySendCap } from "@/lib/db";
 import { describeDbError } from "@/lib/mongo";
+import { isServerlessHost } from "@/lib/runtime";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,8 +24,6 @@ export async function GET() {
     dailyCap: getDailySendCap(),
     sentToday,
     dbError,
-    serverless: Boolean(
-      process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY,
-    ),
+    serverless: isServerlessHost(),
   });
 }

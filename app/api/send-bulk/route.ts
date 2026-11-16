@@ -13,6 +13,7 @@ import {
 } from "@/lib/db";
 import { buildCampaignResponse, type RunnerQueueItem } from "@/lib/campaign-runner";
 import { describeDbError } from "@/lib/mongo";
+import { SERVERLESS_CHUNK_MS, isServerlessHost } from "@/lib/runtime";
 import { normalizeStyle } from "@/lib/template";
 import type { DeliverySettings, EmailStyle, Recipient, SendPayload } from "@/lib/types";
 import { isValidEmail } from "@/lib/utils";
@@ -220,6 +221,7 @@ export async function POST(request: NextRequest) {
     totalMessages: total,
     seed: { sent: 0, failed: 0, skipped: 0 },
     dailyCap: getDailySendCap(),
+    deadlineAt: isServerlessHost() ? Date.now() + SERVERLESS_CHUNK_MS : undefined,
     notice:
       alreadyContacted > 0
         ? `${alreadyContacted} recipient${alreadyContacted === 1 ? "" : "s"} already received a previous campaign and ${alreadyContacted === 1 ? "was" : "were"} skipped automatically.`

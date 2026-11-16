@@ -665,10 +665,11 @@ export function Dashboard({ username }: { username: string }) {
                   role="status"
                   className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/[0.08] p-3 text-[12px] leading-relaxed text-amber-200"
                 >
-                  <span className="font-semibold">Serverless host detected.</span> Sending is cut off when the
-                  platform function timeout is reached (about 5 minutes on Vercel), and it cannot continue after
-                  the tab closes. For 300-email background campaigns, deploy this app on a VPS, Railway or Render
-                  web service instead.
+                  <span className="font-semibold">Free serverless mode.</span> Vercel stops a function after
+                  about 5 minutes, so sending is split into chunks that continue automatically — keep this
+                  dashboard tab open until the campaign finishes. If the tab or laptop sleeps, the campaign pauses
+                  safely; reopen the dashboard and press Resume. For fully unattended campaigns, use a VPS,
+                  Railway or Render web service.
                 </div>
               ) : null}
               {dbError ? (

@@ -16,6 +16,7 @@ A production-ready bulk email sender built with **Next.js 16 (App Router)**, **T
 - **Safe rate limiting (server-side)** — configurable per-email delay (1–120s), batch size (1–200), batch cooldown (0–15min), a per-campaign session cap, and a **hard daily cap across all campaigns**. Transient SMTP errors are retried twice with backoff.
 - **Real-time progress** — SSE stream updates the progress bar, status counters, cooldown countdown, and every log row (timestamp, status, message ID, or error) as it happens.
 - **Background sending** — the send engine lives on the server, not in the browser. Closing the tab, the laptop lid, or the whole browser does **not** stop a campaign; reopening the dashboard shows a “campaign running in the background” banner with **Attach** (live view) and **Stop**. If a different tab starts a second campaign it is rejected server-side.
+- **Free serverless mode** — on Vercel (or any host with a hard function timeout) a campaign is split into chunks. Each chunk stops cleanly before the function limit, waits out any batch cooldown, and resumes automatically while the dashboard tab is open. If the tab or laptop sleeps, the campaign pauses safely and can be resumed later.
 - **Cancel anytime** — Stop writes a flag to the database, so it works from any tab and even after a reload. The in-flight message is marked *unconfirmed* and everything else stays pending for a safe resume.
 - **Persistent history (MongoDB)** — every campaign and message is written to MongoDB (Atlas or self-hosted). A crash, power cut, or server restart never loses the record of who was emailed.
 - **Crash recovery / resume** — if a run is interrupted, the dashboard shows a banner and can resume only the unfinished rows. Already-sent emails are never repeated; messages that were mid-send when the process died are marked *unconfirmed* and only re-sent if you explicitly opt in (duplicate risk).
@@ -195,7 +196,18 @@ The API route (`app/api/send-bulk/route.ts`) is the only place that talks to SMT
 10. **Background mode**: the send loop is owned by the server process, not the HTTP response. The SSE stream is only a live view; when the client disconnects the loop keeps going. **Stop** sets `cancelRequested` in MongoDB, which the loop checks between messages, and the in-flight row becomes `unconfirmed` (outcome unknown) instead of pretending it failed.
 11. Emit a final `done` (or `cancelled`) event with duration and totals. If nobody is watching, the result is still in MongoDB and the dashboard reads it on the next visit.
 
-SSE events: `start`, `verified`, `notice`, `warning`, `cooldown`, `log`, `progress`, `done`, `cancelled`, `fatal`.
+SSE events: `start`, `verified`, `notice`, `warning`, `cooldown`, `log`, `progress`, `paused`, `done`, `cancelled`, `fatal`.
+
+### Serverless chunking (Vercel free plan)
+
+A serverless function cannot run for the ~3 hours a 300-email campaign needs, so the engine detects the host (`lib/runtime.ts`) and sets a deadline of `SERVERLESS_CHUNK_MS` (230 s by default) per run:
+
+1. The loop never starts a message after the deadline, so no email is cut off mid-send.
+2. If the next batch cooldown would cross the deadline, the run pauses instead and reports how long to wait.
+3. The campaign is marked **interrupted** with accurate counters and a `paused` event.
+4. The dashboard waits out the cooldown and calls `/resume` automatically, repeating until the campaign is done.
+
+Keep the dashboard tab open for this. If the tab or laptop sleeps the campaign simply pauses; reopen the dashboard and press **Resume**. A VPS/Railway/Render host has no deadline, so the whole campaign streams in one request and none of this applies.
 
 ### History, duplicates & crash recovery
 
@@ -235,7 +247,7 @@ The dashboard also requires an explicit opt-in confirmation before each campaign
 
 - Set all SMTP and safety variables in your hosting provider's environment (not in a committed file).
 - **MongoDB**: use Atlas (free M0 works) or a self-hosted instance. Set `MONGODB_URI` and optionally `MONGODB_DB`. No persistent disk is needed on the app server now.
-- **Background sending needs a long-running Node process.** Use a VPS, Railway, Render (with a persistent web service) or Docker. Serverless (Vercel) will freeze/kill the function between requests, so a campaign would stop — the run is not a browser request anymore, but it still lives inside the Node process. Both send routes export `maxDuration = 300` so a Vercel Hobby build is valid; that 5-minute limit is also why Vercel cannot finish a 300-email campaign. The dashboard shows a warning banner automatically when it detects a serverless host.
+- **Background sending needs a long-running Node process for truly unattended campaigns.** Use a VPS, Railway, Render (with a persistent web service) or Docker. On Vercel, both send routes export `maxDuration = 300` and the engine pauses cleanly at ~230 s, then the open dashboard continues the campaign chunk by chunk (waiting out each batch cooldown). That keeps a 300-email campaign safe on the free plan, but it pauses if the tab or laptop sleeps, so a VPS is still better for running while nobody is watching. The dashboard shows a banner explaining which mode it is in.
 - The route uses Node.js (`runtime = "nodejs"`) and streaming. Run **one app instance per database**; the interrupted-campaign detector assumes the send loop and the dashboard share a process. Running two replicas against the same DB can make each replica mark the other's campaign as interrupted.
 - Keep `AUTH_USERNAME`, `AUTH_PASSWORD` and `JWT_SECRET` in your hosting provider's environment (not a committed file). Use a long random secret and change the default password. The app ships a single-account JWT login; add a real user store or an auth provider if you need multiple accounts.
 - The **daily cap** is enforced from MongoDB and survives restarts; the **session cap** applies per run. Both are server-side and cannot be bypassed from the browser.

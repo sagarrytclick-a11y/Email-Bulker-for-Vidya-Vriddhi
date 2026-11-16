@@ -9,6 +9,7 @@ import {
   markCampaignRunning,
 } from "@/lib/db";
 import { buildCampaignResponse, type RunnerQueueItem, type ResumeLogSeed } from "@/lib/campaign-runner";
+import { SERVERLESS_CHUNK_MS, isServerlessHost } from "@/lib/runtime";
 import type { Recipient, SmtpSettings } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -142,6 +143,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     seed,
     resumeMessages,
     dailyCap: getDailySendCap(),
+    deadlineAt: isServerlessHost() ? Date.now() + SERVERLESS_CHUNK_MS : undefined,
     notice: `Campaign resumed — ${remaining.length} of ${messages.length} messages remaining.`,
   });
 }

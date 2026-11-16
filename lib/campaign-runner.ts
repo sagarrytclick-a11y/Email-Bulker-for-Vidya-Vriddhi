@@ -56,6 +56,8 @@ export interface RunnerArgs {
   dailyCap: number;
   /** Optional informational message sent right after the `start` event. */
   notice?: string;
+  /** Epoch ms after which this run must stop starting new messages. */
+  deadlineAt?: number;
 }
 
 /** Cancellation is requested through the database so it works across tabs. */
@@ -109,6 +111,7 @@ export function buildCampaignResponse(args: RunnerArgs): Response {
     resumeMessages,
     dailyCap,
     notice,
+    deadlineAt,
   } = args;
 
   let activeTransporter: ReturnType<typeof createTransporter> | null = null;
@@ -150,6 +153,10 @@ export function buildCampaignResponse(args: RunnerArgs): Response {
       let skipped = seed.skipped;
       let attempts = 0;
       let batchCount = 0;
+      // Set when the serverless function is about to run out of time. The
+      // campaign is left 'interrupted' so the dashboard can continue it.
+      let pausedForDeadline = false;
+      let pausedCooldownUntil = 0;
       // Track the daily quota locally to avoid a DB hit per recipient/remaining item.
       const sentTodayAtStart = await countSentToday();
       let sentThisRun = 0;
@@ -209,6 +216,13 @@ export function buildCampaignResponse(args: RunnerArgs): Response {
 
         for (let index = 0; index < queue.length; index += 1) {
           if (await stopRequested(campaignId)) break;
+
+          // Serverless hosts kill the function at a fixed timeout. Stop before
+          // that happens so the campaign ends cleanly instead of being reaped.
+          if (deadlineAt && Date.now() >= deadlineAt) {
+            pausedForDeadline = true;
+            break;
+          }
 
           const item = queue[index];
 
@@ -358,9 +372,18 @@ export function buildCampaignResponse(args: RunnerArgs): Response {
           if (!hasMore) break;
 
           if (batchCount % delivery.batchSize === 0) {
+            const cooldownEndsAt = Date.now() + delivery.cooldownMs;
+            // A 5-minute cooldown cannot fit in what is left of a serverless
+            // function. Pause now and let the dashboard wait it out, so the
+            // sender-reputation gap is still respected.
+            if (deadlineAt && cooldownEndsAt > deadlineAt) {
+              pausedForDeadline = true;
+              pausedCooldownUntil = cooldownEndsAt;
+              break;
+            }
             send("cooldown", {
               seconds: Math.ceil(delivery.cooldownMs / 1000),
-              until: Date.now() + delivery.cooldownMs,
+              until: cooldownEndsAt,
               message: `Batch of ${delivery.batchSize} complete. Cooling down to protect your sender reputation.`,
             });
             await waitFor(delivery.cooldownMs, campaignId);
@@ -371,6 +394,21 @@ export function buildCampaignResponse(args: RunnerArgs): Response {
 
         await releaseStuckRows(campaignId);
         const wasCancelled = await stopRequested(campaignId);
+
+        if (pausedForDeadline && !wasCancelled) {
+          // The function is out of time (or a cooldown would not fit). Leave
+          // the campaign resumable and tell the dashboard when to continue.
+          await finishCampaign(campaignId, "interrupted", { sent, failed, skipped });
+          send("paused", {
+            ...progress(),
+            durationMs: Date.now() - startedAt,
+            cancelled: false,
+            reason: "serverless-timeout",
+            resumeAfterMs: Math.max(0, pausedCooldownUntil - Date.now()),
+          });
+          return;
+        }
+
         await finishCampaign(campaignId, wasCancelled ? "cancelled" : "done", { sent, failed, skipped });
 
         const summary = {
