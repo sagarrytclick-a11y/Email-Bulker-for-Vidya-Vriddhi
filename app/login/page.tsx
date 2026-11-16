@@ -34,7 +34,7 @@ export default async function LoginPage({
   const nextValue = Array.isArray(params.next) ? params.next[0] : params.next;
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10">
+    <main className="relative flex min-h-dvh items-center justify-center overflow-x-clip px-4 py-10">
       <div
         aria-hidden="true"
         className="pointer-events-none absolute -left-32 -top-32 size-80 rounded-full bg-brand/15 blur-3xl"

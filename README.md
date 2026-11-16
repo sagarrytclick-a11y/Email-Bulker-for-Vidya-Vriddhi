@@ -8,6 +8,7 @@ A production-ready bulk email sender built with **Next.js 16 (App Router)**, **T
 
 - **JWT login** — username/password from `.env`, signed HS256 token in an `httpOnly` cookie, route protection in `proxy.ts`, and a server-side session check on the dashboard page.
 - **Tabbed navigation** — Setup → Audience → Compose → Send as separate views, so the whole app is not one long scrolling page. State is preserved when switching tabs.
+- **Mobile-first layout** — on phones the sidebar becomes a five-icon tab bar pinned under the header, the page scrolls with the document (sticky header + tab bar, no cut-off panels or sideways scroll), and wide tables scroll inside their own card. The desktop layout keeps the fixed shell with an independently scrolling main area.
 - **Bring your own SMTP** — Gmail App Passwords, Brevo, Zoho, Outlook, Mailtrap, or any standard SMTP relay. Use `.env` credentials or enter them in the dashboard.
 - **Recipient management** — paste comma/newline separated addresses, `Name <email>` pairs, or spreadsheet rows, or upload a CSV. Columns are auto-detected (`email`, `name`, `company`); any extra column is kept but ignored for personalization.
 - **Personalization** — only the fields we actually know are dynamic: `{{name}}`, `{{company}}` and `{{email}}`. Missing values fall back to `there` / `your team`, and unknown placeholders are removed so a raw `{{token}}` never reaches an inbox.

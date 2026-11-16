@@ -25,6 +25,9 @@ html {
 body {
   margin: 0;
   min-height: 100%;
+  /* Guards against a single wide element creating a sideways scroll on
+     phones. `clip` (not `hidden`) keeps position: sticky working. */
+  overflow-x: clip;
   background-color: var(--color-canvas);
   background-image:
     radial-gradient(rgba(16, 48, 35, 0.13) 1px, transparent 1px),

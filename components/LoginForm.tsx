@@ -55,7 +55,7 @@ export function LoginForm({ nextPath }: { nextPath: string }) {
         Use the username and password configured in your <code className="text-zinc-400">.env</code> file.
       </p>
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-4" noValidate>
+      <form onSubmit={handleSubmit} method="post" className="mt-6 space-y-4" noValidate>
         <Field label="Username" htmlFor="username">
           <div className="relative">
             <User className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-600" />

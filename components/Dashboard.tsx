@@ -478,8 +478,8 @@ export function Dashboard({ username }: { username: string }) {
   const eyebrow = tab === "overview" ? "Workspace" : `Step ${stepIndex} of ${steps.length - 1}`;
 
   return (
-    <div className="h-dvh w-full overflow-hidden bg-panel">
-      <div className="flex h-full w-full flex-col lg:flex-row">
+    <div className="min-h-dvh w-full bg-panel lg:h-dvh lg:overflow-hidden">
+      <div className="flex min-h-dvh w-full flex-col lg:h-full lg:min-h-0 lg:flex-row">
         <aside className="hidden w-64 shrink-0 flex-col border-r border-line bg-[#0c1210] lg:flex">
           <div className="flex h-[72px] items-center border-b border-line px-5">
             <Brand />
@@ -584,8 +584,8 @@ export function Dashboard({ username }: { username: string }) {
           </div>
         </aside>
 
-        <div className="flex min-w-0 flex-1 flex-col lg:overflow-hidden">
-          <header className="flex h-[72px] shrink-0 items-center justify-between gap-3 border-b border-line bg-panel/70 px-4 backdrop-blur sm:px-6">
+        <div className="flex min-w-0 flex-1 flex-col lg:min-h-0 lg:overflow-hidden">
+          <header className="sticky top-0 z-40 flex h-[72px] shrink-0 items-center justify-between gap-3 border-b border-line bg-panel px-4 backdrop-blur sm:px-6 lg:static lg:z-auto lg:bg-panel/70">
             <div className="flex min-w-0 items-center gap-3">
               <div className="lg:hidden">
                 <Brand compact />
@@ -629,7 +629,10 @@ export function Dashboard({ username }: { username: string }) {
             </div>
           </header>
 
-          <nav aria-label="Campaign sections" className="flex gap-1 overflow-x-auto border-b border-line px-3 py-2 lg:hidden">
+          <nav
+            aria-label="Campaign sections"
+            className="sticky top-[72px] z-30 grid shrink-0 grid-cols-5 gap-1 border-b border-line bg-panel px-2 py-2 lg:hidden"
+          >
             {steps.map((step) => {
               const active = tab === step.id;
               const Icon = step.icon;
@@ -640,25 +643,28 @@ export function Dashboard({ username }: { username: string }) {
                   onClick={() => changeTab(step.id)}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-[13px] font-medium transition",
+                    "relative flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-1.5 text-[10px] font-medium transition",
                     active
                       ? "bg-brand/10 text-brand ring-1 ring-inset ring-brand/20"
                       : "text-zinc-500 hover:bg-white/5 hover:text-zinc-200",
                   )}
                 >
-                  <Icon className="size-4" />
-                  {step.label}
-                  {step.live ? <span className="size-2 animate-pulse rounded-full bg-brand" /> : null}
-                  {step.alert ? <span className="size-2 rounded-full bg-amber-400" /> : null}
-                  {step.count && step.count > 0 ? (
-                    <span className="text-[11px] tabular-nums text-zinc-500">{step.count}</span>
+                  <Icon className="size-[18px] shrink-0" />
+                  <span className="w-full truncate text-center leading-tight">{step.label}</span>
+                  {step.live || step.alert ? (
+                    <span
+                      className={cn(
+                        "absolute right-1.5 top-1 size-1.5 rounded-full",
+                        step.live ? "animate-pulse bg-brand" : "bg-amber-400",
+                      )}
+                    />
                   ) : null}
                 </button>
               );
             })}
           </nav>
 
-          <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-8 pt-5 sm:px-6 sm:pt-6 lg:px-8">
+          <main className="flex-1 px-4 pb-[calc(2.5rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 sm:pt-6 lg:min-h-0 lg:overflow-y-auto lg:px-8 lg:pb-8">
             <div className="w-full">
               {serverless ? (
                 <div
